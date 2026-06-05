@@ -1,0 +1,29 @@
+{
+  "name": "craftpanel",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "SkillFXX",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build":"electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^42.3.3",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.craftpanel.app",
+    "productName": "CraftPanel",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": "portable"
+    },
+    "files": [
+      "**/*"
+    ]
+  }
+}

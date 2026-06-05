@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CraftPanel - Minecraft Server Manager</title>
+    <link rel="stylesheet" href="index.css" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' data:;
+  connect-src 'self';
+"
+    />
+  </head>
+  <body>
+    <div class="app-container">
+      <header>
+        <div class="brand">
+          <div>
+            <h1>CraftPanel</h1>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px">
+          <button
+            id="btn-theme-toggle"
+            class="btn btn-secondary btn-sm"
+            style="padding: 8px 16px; border-radius: 9999px"
+            title="Switch Theme"
+          >
+            🌙 Mode
+          </button>
+          <div id="java-status" class="java-status-badge">
+            <span class="status-indicator"></span> Checking Java...
+          </div>
+        </div>
+      </header>
+
+      <div class="quick-stats">
+        <div class="stat-item">
+          <span id="stat-total-servers" class="stat-value">0</span>
+          <span class="stat-label">Total Servers</span>
+        </div>
+        <div class="stat-item">
+          <span id="stat-java-ver" class="stat-value">-</span>
+          <span class="stat-label">Java Version</span>
+        </div>
+        <div class="stat-item">
+          <span id="stat-public-ip" class="stat-value">Retrieving...</span>
+          <span class="stat-label">Public IP Address</span>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <div class="glass-card">
+          <div class="card-title-bar">
+            <h2>Servers Inventory</h2>
+            <button id="btn-open-create" class="btn btn-primary btn-sm">
+              + Create Server
+            </button>
+          </div>
+
+          <div id="server-list" class="server-list"></div>
+
+          <div id="empty-state" class="empty-state">
+            <h3>No Servers Configured</h3>
+            <p>
+              Get started by creating your first Minecraft server environment.
+            </p>
+            <button id="btn-empty-create" class="btn btn-primary">
+              Create a Server
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="create-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Create Server</h2>
+          <button id="btn-close-modal" class="close-btn">&times;</button>
+        </div>
+
+        <form id="create-server-form">
+          <div class="form-group">
+            <label class="form-label" for="server-name">Server Name</label>
+            <input
+              type="text"
+              id="server-name"
+              class="form-input"
+              placeholder="My-Awesome-Server"
+              required
+              pattern="^[a-zA-Z0-9_\-]+$"
+              title="Letters, numbers, underscores and hyphens only"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Select Loader</label>
+            <div class="loader-grid">
+              <div class="loader-card selected" data-loader="vanilla">
+                <span class="loader-card-title">Vanilla</span>
+                <span class="loader-card-desc">Mojang official jar</span>
+              </div>
+              <div class="loader-card" data-loader="paper">
+                <span class="loader-card-title">PaperMC</span>
+                <span class="loader-card-desc">Highly optimized</span>
+              </div>
+              <div class="loader-card" data-loader="purpur">
+                <span class="loader-card-title">Purpur</span>
+                <span class="loader-card-desc">Customization + Paper</span>
+              </div>
+              <div class="loader-card" data-loader="fabric">
+                <span class="loader-card-title">Fabric</span>
+                <span class="loader-card-desc">Lightweight modding</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="version-select"
+              >Minecraft Version</label
+            >
+            <select id="version-select" class="form-input" required>
+              <option value="" disabled selected>
+                Loading Minecraft versions...
+              </option>
+            </select>
+          </div>
+
+          <div class="form-actions">
+            <button
+              type="button"
+              id="btn-cancel-create"
+              class="btn btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              id="btn-submit-create"
+              class="btn btn-primary"
+            >
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="progress-overlay" class="progress-overlay">
+      <div class="progress-card">
+        <div class="progress-spinner"></div>
+        <h3 class="progress-title">Building Server</h3>
+        <p id="progress-step" class="progress-step">
+          Initializing file workspace...
+        </p>
+        <div class="progress-bar-container">
+          <div id="progress-bar-fill" class="progress-bar-fill"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
