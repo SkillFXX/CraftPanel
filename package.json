@@ -1,7 +1,7 @@
 {
   "name": "craftpanel",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.1.0",
+  "description": "Easily create, manage, and launch Minecraft servers with multiple loaders and custom settings.",
   "license": "ISC",
   "author": "SkillFXX",
   "type": "commonjs",
