@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CraftPanel - Minecraft Server Manager</title>
-    <link rel="stylesheet" href="index.css" />
+    <link rel="stylesheet" href="static/css/index.css" />
+    <link rel="stylesheet" href="static/css/toastify.css" />
+
     <meta
       http-equiv="Content-Security-Policy"
       content="
@@ -20,22 +22,23 @@
   <body>
     <div class="app-container">
       <header>
-        <div class="brand">
-          <div>
-            <h1>CraftPanel</h1>
+        <div class="header-left">
+          <div class="brand">
+            <div>
+              <h1 class="brand-title">CraftPanel</h1>
+            </div>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 12px">
-          <button
-            id="btn-theme-toggle"
-            class="btn btn-secondary btn-sm"
-            style="padding: 8px 16px; border-radius: 9999px"
-            title="Switch Theme"
-          >
-            🌙 Mode
-          </button>
+
+        <div class="header-right">
           <div id="java-status" class="java-status-badge">
             <span class="status-indicator"></span> Checking Java...
+          </div>
+
+          <div class="window-controls">
+            <button id="minimize">—</button>
+            <button id="maximize">□</button>
+            <button id="close">✕</button>
           </div>
         </div>
       </header>
@@ -60,7 +63,12 @@
           <div class="card-title-bar">
             <h2>Servers Inventory</h2>
             <button id="btn-open-create" class="btn btn-primary btn-sm">
-              + Create Server
+              <img
+                src="assets/add.svg"
+                alt=""
+                class="btn-icon-svg brightness-invert"
+              />
+              <span>Create Server</span>
             </button>
           </div>
 
@@ -119,6 +127,32 @@
                 <span class="loader-card-title">Fabric</span>
                 <span class="loader-card-desc">Lightweight modding</span>
               </div>
+              <div class="loader-card" data-loader="velocity">
+                <span class="loader-card-title">Velocity</span>
+                <span class="loader-card-desc">High-performance proxy</span>
+              </div>
+              <div class="loader-card" data-loader="folia">
+                <span class="loader-card-title">Folia</span>
+                <span class="loader-card-desc">Async-aware server fork</span>
+              </div>
+              <div class="loader-card" data-loader="quilt">
+                <span class="loader-card-title">Quilt</span>
+                <span class="loader-card-desc"
+                  >Modern Fabric-compatible loader</span
+                >
+              </div>
+              <div class="loader-card" data-loader="forge">
+                <span class="loader-card-title">Forge</span>
+                <span class="loader-card-desc"
+                  >Classic Minecraft mod loader</span
+                >
+              </div>
+              <div class="loader-card" data-loader="neoforge">
+                <span class="loader-card-title">NeoForge</span>
+                <span class="loader-card-desc"
+                  >Forge-compatible modern fork</span
+                >
+              </div>
             </div>
           </div>
 
@@ -166,6 +200,7 @@
       </div>
     </div>
 
-    <script src="renderer.js"></script>
+    <script type="text/javascript" src="static/js/toastify.js"></script>
+    <script src="static/js/renderer.js"></script>
   </body>
 </html>

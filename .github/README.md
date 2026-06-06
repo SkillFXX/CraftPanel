@@ -7,15 +7,45 @@ CraftPanel is free, open-source software that makes it easy to manage your Minec
 
 ## Supported loader
 
-| Loader  | Supported |
-| ------- | :-------: |
-| Vanilla |    ✅     |
-| Paper   |    ✅     |
-| Fabric  |    ✅     |
-| Purpur  |    ✅     |
-| Forge   |    ❌     |
-| Spigot  |    ❌     |
+| Loader   | Supported |
+| -------- | :-------: |
+| Vanilla  |    ✅     |
+| PaperMC  |    ✅     |
+| Fabric   |    ✅     |
+| Purpur   |    ✅     |
+| Velocity |    ✅     |
+| Folia    |    ✅     |
+| Quilt    |    ✅     |
+| Forge    |    ⚠️     |
+| NeoForge |    ⚠️     |
+| Spigot   |    ❌     |
+| Bukkit   |    ❌     |
+
+## Installation
+
+_This software is designed has only been tested on Windows 11._
+
+### Pre-compiled version
+
+You can download a pre-compiled version from the [Releases](https://github.com/SkillFXX/CraftPanel/releases/) page.
+
+### Compile the project yourself
+
+```bash
+    git clone https://github.com/SkillFXX/CraftPanel # Clone the repository
+    cd CraftPanel
+
+    npm install # Download dependencies
+
+    npm run start # Launch the app
+```
+
+You can also build it using `electron-builder`
+
+```bash
+    npm run build
+```
 
 ## Preview
 
-![Garmin Peak Chat Preview.](previews/1.png)
+![Craft Panel Preview](previews/1.png)

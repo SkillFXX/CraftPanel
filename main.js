@@ -1,8 +1,34 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, nativeTheme } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const https = require("node:https");
 const { exec } = require("node:child_process");
+
+const HTTP_OPTIONS = {
+  headers: {
+    "User-Agent": "CraftPanel/1.0.0",
+  },
+};
+
+const AIKAR_FLAGS = [
+  "-XX:+UseG1GC",
+  "-XX:+ParallelRefProcEnabled",
+  "-XX:MaxGCPauseMillis=200",
+  "-XX:+UnlockExperimentalVMOptions",
+  "-XX:+DisableExplicitGC",
+  "-XX:+AlwaysPreTouch",
+  "-XX:G1NewSizePercent=30",
+  "-XX:G1MaxNewSizePercent=40",
+  "-XX:G1HeapRegionSize=8M",
+  "-XX:G1ReservePercent=20",
+  "-XX:InitiatingHeapOccupancyPercent=15",
+  "-XX:G1MixedGCCountTarget=4",
+  "-XX:G1MixedGCLiveThresholdPercent=90",
+  "-XX:+PerfDisableSharedMem",
+  "-XX:MaxTenuringThreshold=1",
+  "-Dusing.aikars.flags=https://mcflags.emc.gs",
+  "-Daikars.new.flags=true",
+];
 
 const appDataPath = path.join(
   process.env.APPDATA || app.getPath("appData"),
@@ -11,36 +37,34 @@ const appDataPath = path.join(
 const serversPath = path.join(appDataPath, "servers");
 const configFilePath = path.join(appDataPath, "servers.json");
 
+let mainWindow;
+
 function initDirectories() {
-  if (!fs.existsSync(appDataPath)) {
+  if (!fs.existsSync(appDataPath))
     fs.mkdirSync(appDataPath, { recursive: true });
-  }
-  if (!fs.existsSync(serversPath)) {
+  if (!fs.existsSync(serversPath))
     fs.mkdirSync(serversPath, { recursive: true });
-  }
-  if (!fs.existsSync(configFilePath)) {
+  if (!fs.existsSync(configFilePath))
     fs.writeFileSync(configFilePath, JSON.stringify([]), "utf8");
-  }
+}
+
+function getJvmFlags(ram, useAikarFlags) {
+  const flags = [`-Xms${ram}G`, `-Xmx${ram}G`];
+  if (useAikarFlags) flags.push(...AIKAR_FLAGS);
+  return flags;
 }
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
-    const options = {
-      headers: {
-        "User-Agent": "CraftPanel/1.0.0",
-      },
-    };
     https
-      .get(url, options, (res) => {
+      .get(url, HTTP_OPTIONS, (res) => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
           return reject(
             new Error(`Failed to fetch JSON: HTTP ${res.statusCode}`),
           );
         }
         let data = "";
-        res.on("data", (chunk) => {
-          data += chunk;
-        });
+        res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
           try {
             resolve(JSON.parse(data));
@@ -53,30 +77,45 @@ function fetchJson(url) {
   });
 }
 
+function fetchText(url) {
+  return new Promise((resolve, reject) => {
+    https
+      .get(url, HTTP_OPTIONS, (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(
+            new Error(`Failed to fetch text: HTTP ${res.statusCode}`),
+          );
+        }
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve(data));
+      })
+      .on("error", reject);
+  });
+}
+
 function downloadFile(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath);
+    const handleError = (err) => {
+      file.close();
+      fs.unlink(destPath, () => {});
+      reject(err);
+    };
 
     function request(targetUrl) {
-      const options = {
-        headers: {
-          "User-Agent": "CraftPanel/1.0.0",
-        },
-      };
       https
-        .get(targetUrl, options, (res) => {
+        .get(targetUrl, HTTP_OPTIONS, (res) => {
           if (
             [301, 302, 307, 308].includes(res.statusCode) &&
             res.headers.location
           ) {
-            request(res.headers.location);
-            return;
+            return request(res.headers.location);
           }
-
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            file.close();
-            fs.unlink(destPath, () => {});
-            return reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+            return handleError(
+              new Error(`Download failed: HTTP ${res.statusCode}`),
+            );
           }
 
           const totalBytes = parseInt(res.headers["content-length"], 10) || 0;
@@ -93,37 +132,21 @@ function downloadFile(url, destPath, onProgress) {
               });
             }
           });
-
           res.on("end", () => {
             file.end();
             resolve();
           });
-
-          res.on("error", (err) => {
-            file.close();
-            fs.unlink(destPath, () => {});
-            reject(err);
-          });
+          res.on("error", handleError);
         })
-        .on("error", (err) => {
-          file.close();
-          fs.unlink(destPath, () => {});
-          reject(err);
-        });
+        .on("error", handleError);
     }
-
     request(url);
   });
 }
 
 function validateDownloadUrl(url) {
   return new Promise((resolve, reject) => {
-    const options = {
-      headers: {
-        "User-Agent": "CraftPanel/1.0.0",
-      },
-      method: "HEAD",
-    };
+    const options = { ...HTTP_OPTIONS, method: "HEAD" };
 
     function request(targetUrl) {
       const req = https.request(targetUrl, options, (res) => {
@@ -131,21 +154,14 @@ function validateDownloadUrl(url) {
           [301, 302, 307, 308].includes(res.statusCode) &&
           res.headers.location
         ) {
-          request(res.headers.location);
-          return;
+          return request(res.headers.location);
         }
-
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          return resolve();
-        }
-
+        if (res.statusCode >= 200 && res.statusCode < 300) return resolve();
         reject(new Error(`Download URL not available: HTTP ${res.statusCode}`));
       });
-
       req.on("error", reject);
       req.end();
     }
-
     request(url);
   });
 }
@@ -160,8 +176,10 @@ function checkJavaInstalled() {
         const match = output.match(
           /version "([^"]+)"|openjdk version "([^"]+)"/,
         );
-        const version = match ? match[1] || match[2] : "Unknown";
-        resolve({ installed: true, version });
+        resolve({
+          installed: true,
+          version: match ? match[1] || match[2] : "Unknown",
+        });
       }
     });
   });
@@ -169,31 +187,8 @@ function checkJavaInstalled() {
 
 function generateLaunchBatch(serverDir, jarName, ram, options) {
   const batchPath = path.join(serverDir, "craftpanel-start.bat");
-  const flags = [`-Xms${ram}G`, `-Xmx${ram}G`];
-  if (options.useAikarFlags) {
-    flags.push(
-      "-XX:+UseG1GC",
-      "-XX:+ParallelRefProcEnabled",
-      "-XX:MaxGCPauseMillis=200",
-      "-XX:+UnlockExperimentalVMOptions",
-      "-XX:+DisableExplicitGC",
-      "-XX:+AlwaysPreTouch",
-      "-XX:G1NewSizePercent=30",
-      "-XX:G1MaxNewSizePercent=40",
-      "-XX:G1HeapRegionSize=8M",
-      "-XX:G1ReservePercent=20",
-      "-XX:InitiatingHeapOccupancyPercent=15",
-      "-XX:G1MixedGCCountTarget=4",
-      "-XX:G1MixedGCLiveThresholdPercent=90",
-      "-XX:+PerfDisableSharedMem",
-      "-XX:MaxTenuringThreshold=1",
-      "-Dusing.aikars.flags=https://mcflags.emc.gs",
-      "-Daikars.new.flags=true",
-    );
-  }
-  if (!options.guiEnabled) {
-    flags.push("nogui");
-  }
+  const flags = getJvmFlags(ram, options.useAikarFlags);
+  if (!options.guiEnabled) flags.push("nogui");
 
   const javaCommand = `java ${flags.join(" ")} -jar "${jarName}"`;
   const lines = [
@@ -211,47 +206,46 @@ function generateLaunchBatch(serverDir, jarName, ram, options) {
   return batchPath;
 }
 
+function findLaunchJar(serverDir, loader) {
+  if (loader === "fabric") return "fabric-server-launch.jar";
+
+  if (loader === "forge" || loader === "neoforge") {
+    const files = fs
+      .readdirSync(serverDir)
+      .filter((file) => file.endsWith(".jar"));
+    const candidates = files
+      .filter(
+        (file) =>
+          !file.includes("installer") &&
+          !file.includes("fabric-server-launch") &&
+          !file.includes("minecraft_server") &&
+          !file.includes("forge-installer") &&
+          !file.includes("neoforge-installer"),
+      )
+      .sort();
+
+    const launchJar = candidates.find((file) => file.startsWith(`${loader}-`));
+    if (launchJar) return launchJar;
+    if (files.includes("server.jar")) return "server.jar";
+    if (files.length > 0) return files[0];
+    return "server.jar";
+  }
+
+  return "server.jar";
+}
+
 function launchServer(serverDir, ram, loader, options = {}) {
   return new Promise((resolve, reject) => {
-    const jarName =
-      loader === "fabric" ? "fabric-server-launch.jar" : "server.jar";
-
+    const jarName = findLaunchJar(serverDir, loader);
     const serverJar = path.join(serverDir, jarName);
 
     if (!fs.existsSync(serverJar)) {
       return reject(new Error(`${jarName} file not found in directory`));
     }
 
-    const jvmFlags = [`-Xms${ram}G`, `-Xmx${ram}G`];
-
-    if (options.useAikarFlags) {
-      jvmFlags.push(
-        "-XX:+UseG1GC",
-        "-XX:+ParallelRefProcEnabled",
-        "-XX:MaxGCPauseMillis=200",
-        "-XX:+UnlockExperimentalVMOptions",
-        "-XX:+DisableExplicitGC",
-        "-XX:+AlwaysPreTouch",
-        "-XX:G1NewSizePercent=30",
-        "-XX:G1MaxNewSizePercent=40",
-        "-XX:G1HeapRegionSize=8M",
-        "-XX:G1ReservePercent=20",
-        "-XX:InitiatingHeapOccupancyPercent=15",
-        "-XX:G1MixedGCCountTarget=4",
-        "-XX:G1MixedGCLiveThresholdPercent=90",
-        "-XX:+PerfDisableSharedMem",
-        "-XX:MaxTenuringThreshold=1",
-        "-Dusing.aikars.flags=https://mcflags.emc.gs",
-        "-Daikars.new.flags=true",
-      );
-    }
-
-    const mcArgs = [];
-    if (!options.guiEnabled) {
-      mcArgs.push("nogui");
-    }
-
-    let launchCommand = `java ${jvmFlags.join(" ")} -jar ${jarName} ${mcArgs.join(" ")}`;
+    const jvmFlags = getJvmFlags(ram, options.useAikarFlags);
+    const mcArgs = !options.guiEnabled ? ["nogui"] : [];
+    let launchCommand = `java ${jvmFlags.join(" ")} -jar "${jarName}" ${mcArgs.join(" ")}`;
 
     if (options.autoRestart) {
       generateLaunchBatch(serverDir, jarName, ram, options);
@@ -259,20 +253,15 @@ function launchServer(serverDir, ram, loader, options = {}) {
     }
 
     const cmd = `start "" /d "${serverDir}" cmd.exe /k "title CraftPanel Server - ${path.basename(serverDir)} && ${launchCommand}"`;
-
-    exec(cmd, (error) => {
-      if (error) reject(error);
-      else resolve();
-    });
+    exec(cmd, (error) => (error ? reject(error) : resolve()));
   });
 }
 
 function readConfig() {
   try {
     if (!fs.existsSync(configFilePath)) return [];
-    const raw = fs.readFileSync(configFilePath, "utf8");
-    return JSON.parse(raw);
-  } catch (e) {
+    return JSON.parse(fs.readFileSync(configFilePath, "utf8"));
+  } catch {
     return [];
   }
 }
@@ -281,13 +270,13 @@ function writeConfig(data) {
   fs.writeFileSync(configFilePath, JSON.stringify(data, null, 2), "utf8");
 }
 
-let mainWindow;
 const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 950,
     height: 700,
     minWidth: 800,
     minHeight: 600,
+    frame: false,
     icon: path.join(__dirname, "assets/icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -298,41 +287,60 @@ const createWindow = () => {
   });
 
   mainWindow.setMenuBarVisibility(false);
-
   mainWindow.loadFile("index.html");
 };
 
+function setupUserTasks() {
+  if (process.platform === "win32") {
+    app.setUserTasks([
+      {
+        program: process.execPath,
+        arguments: "--action=new-server",
+        iconPath: process.execPath,
+        iconIndex: 0,
+        title: "Create a server",
+        description: "Opens the CraftPanel server creation wizard",
+      },
+    ]);
+  }
+}
+
 app.whenReady().then(() => {
   initDirectories();
+  setupUserTasks();
 
-  ipcMain.handle("check-java", async () => {
-    return await checkJavaInstalled();
-  });
+  ipcMain.handle("check-java", async () => await checkJavaInstalled());
 
-  ipcMain.handle("get-versions", async () => {
+  ipcMain.handle("get-theme", () => nativeTheme.shouldUseDarkColors);
+
+  ipcMain.handle("get-versions", async (event, loader = "vanilla") => {
     try {
+      if (loader === "velocity") {
+        const project = await fetchJson(
+          "https://api.papermc.io/v2/projects/velocity",
+        );
+        return project.versions.map((v) => ({ id: v, label: v }));
+      }
+
       const manifest = await fetchJson(
         "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
       );
       return manifest.versions
         .filter((v) => v.type === "release")
-        .map((v) => ({ id: v.id, url: v.url }));
+        .map((v) => ({ id: v.id, label: v.id }));
     } catch (e) {
-      throw new Error(`Failed to fetch Minecraft versions: ${e.message}`);
+      throw new Error(`Failed to fetch versions: ${e.message}`);
     }
   });
 
-  ipcMain.handle("get-servers", () => {
-    return readConfig();
-  });
+  ipcMain.handle("get-servers", () => readConfig());
 
   ipcMain.handle("create-server", async (event, { name, loader, version }) => {
     const sanitizedName = name.replace(/[^a-zA-Z0-9_\-]/g, "_");
     const targetDir = path.join(serversPath, sanitizedName);
 
-    if (fs.existsSync(targetDir)) {
+    if (fs.existsSync(targetDir))
       throw new Error("A server folder with this name already exists.");
-    }
 
     const config = readConfig();
     if (config.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
@@ -340,22 +348,16 @@ app.whenReady().then(() => {
     }
 
     const sendProgress = (step, percent) => {
-      if (mainWindow) {
+      if (mainWindow)
         mainWindow.webContents.send("server-creation-progress", {
           step,
           percent,
         });
-      }
     };
 
     try {
       fs.mkdirSync(targetDir, { recursive: true });
-
       let downloadUrl = "";
-
-      console.log(
-        `Creating server "${name}" with loader "${loader}" for Minecraft version "${version}"`,
-      );
 
       if (loader === "vanilla") {
         sendProgress("Fetching Minecraft release details...", 10);
@@ -363,15 +365,11 @@ app.whenReady().then(() => {
           "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
         );
         const versionObj = versions.versions.find((v) => v.id === version);
-        if (!versionObj)
-          throw new Error(`Version ${version} not found in Mojang database.`);
+        if (!versionObj) throw new Error(`Version ${version} not found.`);
 
         const details = await fetchJson(versionObj.url);
-        if (!details.downloads || !details.downloads.server) {
-          throw new Error(
-            `Vanilla Minecraft ${version} does not have a server package available.`,
-          );
-        }
+        if (!details.downloads || !details.downloads.server)
+          throw new Error("No vanilla server package available.");
         downloadUrl = details.downloads.server.url;
       } else if (loader === "purpur") {
         sendProgress("Verifying Purpur compatibility...", 15);
@@ -384,27 +382,40 @@ app.whenReady().then(() => {
         const stableBuilds = response.filter((b) => b.channel === "STABLE");
         const latestBuild =
           stableBuilds.length > 0 ? stableBuilds[0] : response[0];
-        if (
-          !latestBuild ||
-          !latestBuild.downloads ||
-          !latestBuild.downloads["server:default"]
-        ) {
-          throw new Error(
-            `No stable Paper builds found for version ${version}.`,
-          );
-        }
+        if (!latestBuild?.downloads?.["server:default"])
+          throw new Error(`No Paper builds found.`);
         downloadUrl = latestBuild.downloads["server:default"].url;
+      } else if (loader === "velocity" || loader === "folia") {
+        sendProgress(`Fetching ${loader} builds...`, 15);
+        const response = await fetchJson(
+          `https://api.papermc.io/v2/projects/${loader}/versions/${version}/builds`,
+        );
+        if (
+          !response ||
+          !Array.isArray(response.builds) ||
+          response.builds.length === 0
+        )
+          throw new Error(`${loader} version ${version} not found.`);
+
+        const selectedBuild =
+          response.builds.find((b) => b.promoted) ||
+          response.builds.find((b) => b.channel === "STABLE") ||
+          response.builds[0];
+
+        const fileInfo =
+          selectedBuild.downloads.application ||
+          Object.values(selectedBuild.downloads)[0];
+        if (!fileInfo || !fileInfo.name)
+          throw new Error(`Failed to resolve ${loader} download file.`);
+
+        downloadUrl = `https://api.papermc.io/v2/projects/${loader}/versions/${version}/builds/${selectedBuild.build}/downloads/${fileInfo.name}`;
       } else if (loader === "fabric") {
         sendProgress("Resolving Fabric Loader version...", 10);
         const loaderList = await fetchJson(
           `https://meta.fabricmc.net/v2/versions/loader/${version}`,
         );
-        if (!loaderList || loaderList.length === 0) {
-          throw new Error(
-            `Fabric is not compatible or available for Minecraft ${version}.`,
-          );
-        }
-        const loaderVersion = loaderList[0].loader.version;
+        if (!loaderList || loaderList.length === 0)
+          throw new Error("Fabric not available.");
 
         sendProgress("Resolving Fabric Installer version...", 15);
         const installerList = await fetchJson(
@@ -412,19 +423,104 @@ app.whenReady().then(() => {
         );
         const stableInstaller =
           installerList.find((i) => i.stable) || installerList[0];
-        if (!stableInstaller) {
-          throw new Error("No compatible Fabric Installers found.");
-        }
-        const installerVersion = stableInstaller.version;
 
-        downloadUrl = `https://meta.fabricmc.net/v2/versions/loader/${version}/${loaderVersion}/${installerVersion}/server/jar`;
+        downloadUrl = `https://meta.fabricmc.net/v2/versions/loader/${version}/${loaderList[0].loader.version}/${stableInstaller.version}/server/jar`;
+      } else if (loader === "quilt") {
+        sendProgress("Fetching Quilt loader metadata...", 10);
+        const loaderVersions = await fetchJson(
+          `https://meta.quiltmc.org/v3/versions/loader/${version}`,
+        );
+        if (!loaderVersions || loaderVersions.length === 0)
+          throw new Error("Quilt loader not available for this version.");
+
+        const loaderVersion = loaderVersions[0].loader.version;
+        sendProgress("Resolving Quilt installer...", 15);
+        const installers = await fetchJson(
+          "https://meta.quiltmc.org/v3/versions/installer",
+        );
+        if (!installers || installers.length === 0)
+          throw new Error("Quilt installer metadata unavailable.");
+
+        const installerVersion = installers[0].version;
+        downloadUrl = `https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/${installerVersion}/quilt-installer-${installerVersion}.jar`;
+      } else if (loader === "forge") {
+        sendProgress("Finding Forge installer for selected version...", 10);
+        const metadataXml = await fetchText(
+          "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml",
+        );
+        const versionMatches = [
+          ...metadataXml.matchAll(/<version>([^<]+)<\/version>/g),
+        ]
+          .map((match) => match[1])
+          .filter((v) => v.startsWith(`${version}-`));
+
+        if (!versionMatches.length)
+          throw new Error(`No Forge installer found for Minecraft ${version}.`);
+
+        const forgeVersion = versionMatches
+          .sort((a, b) =>
+            a.localeCompare(b, undefined, {
+              numeric: true,
+              sensitivity: "base",
+            }),
+          )
+          .pop();
+
+        downloadUrl = `https://maven.minecraftforge.net/net/minecraftforge/forge/${forgeVersion}/forge-${forgeVersion}-installer.jar`;
+      } else if (loader === "neoforge") {
+        sendProgress("Finding NeoForge installer for selected version...", 10);
+        const metadataXml = await fetchText(
+          "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+        );
+
+        let neoPrefix = "";
+        const parts = version.split(".");
+        if (version === "1.20.1") {
+          neoPrefix = "47.1.";
+        } else if (parts.length === 2) {
+          neoPrefix = `${parts[1]}.0.`;
+        } else {
+          neoPrefix = `${parts[1]}.${parts[2]}.`;
+        }
+
+        const versionMatches = [
+          ...metadataXml.matchAll(/<version>([^<]+)<\/version>/g),
+        ]
+          .map((match) => match[1])
+          .filter((v) => v.startsWith(neoPrefix));
+
+        if (!versionMatches.length)
+          throw new Error(
+            `No NeoForge installer found for Minecraft ${version}.`,
+          );
+
+        const neoforgeVersion = versionMatches
+          .sort((a, b) =>
+            a.localeCompare(b, undefined, {
+              numeric: true,
+              sensitivity: "base",
+            }),
+          )
+          .pop();
+
+        downloadUrl = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${neoforgeVersion}/neoforge-${neoforgeVersion}-installer.jar`;
       } else {
-        throw new Error("Invalid server loader selected.");
+        throw new Error("Invalid loader.");
       }
 
-      const jarName =
-        loader === "fabric" ? "fabric-server-launch.jar" : "server.jar";
+      const isInstallerJar =
+        loader === "quilt" || loader === "forge" || loader === "neoforge";
+      const jarName = isInstallerJar
+        ? loader === "quilt"
+          ? "quilt-installer.jar"
+          : loader === "neoforge"
+            ? "neoforge-installer.jar"
+            : "forge-installer.jar"
+        : loader === "fabric"
+          ? "fabric-server-launch.jar"
+          : `server.jar`;
       const jarDest = path.join(targetDir, jarName);
+
       sendProgress("Validating server package availability...", 22);
       await validateDownloadUrl(downloadUrl);
       sendProgress("Downloading server jar file...", 25);
@@ -435,12 +531,62 @@ app.whenReady().then(() => {
           `Downloading server jar... (${progress.percent}%)`,
           overallPercent,
         );
+
+        if (mainWindow) mainWindow.setProgressBar(progress.percent / 100);
       });
 
+      if (mainWindow) mainWindow.setProgressBar(-1);
+
+      if (loader === "forge") {
+        sendProgress("Installing Forge server...", 70);
+        await new Promise((resolve, reject) => {
+          exec(
+            `java -jar "${jarDest}" --installServer`,
+            { cwd: targetDir },
+            (error, stdout, stderr) => {
+              if (error)
+                return reject(new Error(stderr || stdout || error.message));
+              resolve();
+            },
+          );
+        });
+      } else if (loader === "neoforge") {
+        sendProgress("Installing NeoForge server...", 70);
+        await new Promise((resolve, reject) => {
+          exec(
+            `java -jar "${jarDest}" --installServer`,
+            { cwd: targetDir },
+            (error, stdout, stderr) => {
+              if (error)
+                return reject(new Error(stderr || stdout || error.message));
+              resolve();
+            },
+          );
+        });
+      } else if (loader === "quilt") {
+        sendProgress("Installing Quilt server...", 70);
+        const loaderVersions = await fetchJson(
+          `https://meta.quiltmc.org/v3/versions/loader/${version}`,
+        );
+        const loaderVersion = loaderVersions[0].loader.version;
+        await new Promise((resolve, reject) => {
+          exec(
+            `java -jar "${jarDest}" install server "${version}" "${loaderVersion}" --install-dir="${targetDir}" --download-server --create-scripts`,
+            { cwd: targetDir },
+            (error, stdout, stderr) => {
+              if (error)
+                return reject(new Error(stderr || stdout || error.message));
+              resolve();
+            },
+          );
+        });
+      }
+
+      if (mainWindow) mainWindow.setProgressBar(-1);
+
       sendProgress("Generating eula.txt file...", 95);
-      const eulaPath = path.join(targetDir, "eula.txt");
       fs.writeFileSync(
-        eulaPath,
+        path.join(targetDir, "eula.txt"),
         "# Generated by CraftPanel\neula=true\n",
         "utf8",
       );
@@ -462,12 +608,15 @@ app.whenReady().then(() => {
       sendProgress("Server created successfully!", 100);
       return { success: true, server: newServer };
     } catch (err) {
+      if (mainWindow) mainWindow.setProgressBar(-1);
       if (fs.existsSync(targetDir)) {
         try {
           fs.rmSync(targetDir, { recursive: true, force: true });
         } catch (_) {}
       }
-      throw new Error(err.message);
+      throw new Error(
+        `${err.message.includes("HTTP") ? "Version not found or API unavailable" : err.message}`,
+      );
     }
   });
 
@@ -479,31 +628,32 @@ app.whenReady().then(() => {
     ) => {
       const config = readConfig();
       const server = config.find((s) => s.folderName === folderName);
-      if (!server) {
-        throw new Error("Server configuration not found.");
-      }
-      const targetDir = path.join(serversPath, folderName);
-      const javaStatus = await checkJavaInstalled();
+      if (!server) throw new Error("Server configuration not found.");
 
-      if (!javaStatus.installed) {
+      const javaStatus = await checkJavaInstalled();
+      if (!javaStatus.installed)
         return { success: false, error: "java_missing" };
-      }
 
       try {
-        await launchServer(targetDir, ram || server.ram || 2, server.loader, {
-          useAikarFlags:
-            typeof useAikarFlags === "boolean"
-              ? useAikarFlags
-              : server.useAikarFlags || false,
-          autoRestart:
-            typeof autoRestart === "boolean"
-              ? autoRestart
-              : server.autoRestart || false,
-          guiEnabled:
-            typeof guiEnabled === "boolean"
-              ? guiEnabled
-              : server.guiEnabled || false,
-        });
+        await launchServer(
+          path.join(serversPath, folderName),
+          ram || server.ram || 2,
+          server.loader,
+          {
+            useAikarFlags:
+              typeof useAikarFlags === "boolean"
+                ? useAikarFlags
+                : server.useAikarFlags || false,
+            autoRestart:
+              typeof autoRestart === "boolean"
+                ? autoRestart
+                : server.autoRestart || false,
+            guiEnabled:
+              typeof guiEnabled === "boolean"
+                ? guiEnabled
+                : server.guiEnabled || false,
+          },
+        );
         return { success: true };
       } catch (e) {
         throw new Error(`Failed to start server: ${e.message}`);
@@ -515,18 +665,12 @@ app.whenReady().then(() => {
     "update-server-settings",
     (event, { folderName, settings }) => {
       const config = readConfig();
-      const serverIndex = config.findIndex((s) => s.folderName === folderName);
-      if (serverIndex === -1) {
-        throw new Error("Server configuration not found.");
-      }
+      const index = config.findIndex((s) => s.folderName === folderName);
+      if (index === -1) throw new Error("Server not found.");
 
-      const updatedServer = {
-        ...config[serverIndex],
-        ...settings,
-      };
-      config[serverIndex] = updatedServer;
+      config[index] = { ...config[index], ...settings };
       writeConfig(config);
-      return updatedServer;
+      return config[index];
     },
   );
 
@@ -534,46 +678,57 @@ app.whenReady().then(() => {
     try {
       const res = await fetchJson("https://api.ipify.org?format=json");
       return res.ip || "Unknown";
-    } catch (e) {
+    } catch {
       return "Unavailable";
     }
   });
 
   ipcMain.handle("delete-server", (event, folderName) => {
     const targetDir = path.join(serversPath, folderName);
-
-    if (fs.existsSync(targetDir)) {
+    if (fs.existsSync(targetDir))
       fs.rmSync(targetDir, { recursive: true, force: true });
-    }
 
-    const config = readConfig();
-    const updated = config.filter((s) => s.folderName !== folderName);
-    writeConfig(updated);
-
+    writeConfig(readConfig().filter((s) => s.folderName !== folderName));
     return { success: true };
   });
 
   ipcMain.handle("open-server-folder", async (event, folderName) => {
     const targetDir = path.join(serversPath, folderName);
-    if (fs.existsSync(targetDir)) {
-      await shell.openPath(targetDir);
-      return { success: true };
-    } else {
+    if (!fs.existsSync(targetDir))
       throw new Error("Server folder no longer exists.");
-    }
+    await shell.openPath(targetDir);
+    return { success: true };
+  });
+
+  ipcMain.on("window-minimize", () => {
+    BrowserWindow.getFocusedWindow().minimize();
+  });
+
+  ipcMain.on("window-maximize", () => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  });
+
+  ipcMain.on("window-close", () => {
+    BrowserWindow.getFocusedWindow().close();
+  });
+
+  nativeTheme.on("updated", () => {
+    if (mainWindow)
+      mainWindow.webContents.send(
+        "native-theme-updated",
+        nativeTheme.shouldUseDarkColors,
+      );
   });
 
   createWindow();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  if (process.platform !== "darwin") app.quit();
 });

@@ -13,34 +13,61 @@ const btnCancelCreate = document.getElementById("btn-cancel-create");
 const createServerForm = document.getElementById("create-server-form");
 const serverNameInput = document.getElementById("server-name");
 const versionSelect = document.getElementById("version-select");
+const versionLabelEl = document.querySelector('label[for="version-select"]');
 const loaderCards = document.querySelectorAll(".loader-card");
-const themeToggleBtn = document.getElementById("btn-theme-toggle");
 
 const progressOverlayEl = document.getElementById("progress-overlay");
 const progressStepEl = document.getElementById("progress-step");
 const progressBarFill = document.getElementById("progress-bar-fill");
 
+document.getElementById("minimize").onclick = () => {
+  window.api.windowMinimize();
+};
+
+document.getElementById("maximize").onclick = () => {
+  window.api.windowMaximize();
+};
+
+document.getElementById("close").onclick = () => {
+  window.api.windowClose();
+};
 let selectedLoader = "vanilla";
 let versionsLoaded = false;
 let serversList = [];
 
 async function init() {
-  initTheme();
+  await initTheme();
   await updateJavaStatus();
   await updatePublicIp();
   await loadServers();
   setupEventListeners();
 }
 
-function initTheme() {
-  const savedTheme = localStorage.getItem("theme") || "dark";
-  if (savedTheme === "light") {
-    document.body.classList.add("light-theme");
-    themeToggleBtn.innerText = "Light";
-  } else {
-    document.body.classList.remove("light-theme");
-    themeToggleBtn.innerText = "Dark";
+async function initTheme() {
+  try {
+    const useDark = await window.api.getTheme();
+    setTheme(useDark);
+    window.api.onThemeUpdated((isDark) => setTheme(isDark));
+  } catch (e) {
+    console.error("Failed to initialize theme:", e);
   }
+}
+
+function setTheme(useDark) {
+  if (useDark) {
+    document.body.classList.remove("light-theme");
+  } else {
+    document.body.classList.add("light-theme");
+  }
+}
+
+function toast(message, type) {
+  Toastify({
+    text: message,
+    duration: 5000,
+    close: true,
+    className: type,
+  }).showToast();
 }
 
 async function updatePublicIp() {
@@ -104,42 +131,72 @@ function renderServers() {
     const guiEnabled = server.guiEnabled || false;
 
     item.innerHTML = `
-      <div class="server-header">
-        <div class="server-info">
-          <div class="server-name">${server.name}</div>
-          <div class="server-meta">
-            <span class="loader-badge ${server.loader}">${server.loader}</span>
-            <span>Minecraft ${server.version}</span>
-          </div>
+  <div class="server-header">
+    <div class="server-info-wrapper">
+      <img src="assets/${server.loader}.png" alt="${server.loader}" class="loader-logo" onerror="this.style.display='none'">
+      
+      <div class="server-info">
+        <div class="server-name">${server.name}</div>
+        <div class="server-meta">
+          <span class="loader-badge loader-${server.loader}">${server.loader}</span>
+          <span class="version-badge">Minecraft ${server.version}</span>
         </div>
-        <button class="btn btn-secondary btn-sm btn-settings-toggle">Settings</button>
       </div>
+    </div>
+    
+    <button class="btn-icon btn-settings-toggle" title="Settings">
+      <img src="assets/settings.svg" alt="Settings">
+    </button>
+  </div>
 
-      <div class="server-settings-panel">
-        <div class="settings-row">
-          <span class="settings-label">Allocated RAM</span>
-          <div class="settings-ram-wrapper">
-            <input type="range" class="ram-slider" min="1" max="16" value="${allocatedRam}">
-            <span class="ram-value">${allocatedRam} GB</span>
-          </div>
-        </div>
-        <div class="settings-row">
-          <label class="settings-checkbox-label"><input type="checkbox" class="setting-checkbox use-aikar" ${useAikar ? "checked" : ""}> Enable Aikar's Flags</label>
-        </div>
-        <div class="settings-row">
-          <label class="settings-checkbox-label"><input type="checkbox" class="setting-checkbox auto-restart" ${autoRestart ? "checked" : ""}> Auto restart</label>
-        </div>
-        <div class="settings-row">
-          <label class="settings-checkbox-label"><input type="checkbox" class="setting-checkbox gui-enabled" ${guiEnabled ? "checked" : ""}> Enable GUI</label>
-        </div>
+  <div class="server-settings-panel">
+    <div class="settings-row">
+      <span class="settings-label">Allocated RAM</span>
+      <div class="settings-ram-wrapper">
+        <input type="range" class="ram-slider" min="1" max="16" value="${allocatedRam}">
+        <span class="ram-value">${allocatedRam} GB</span>
       </div>
+    </div>
+    <div class="settings-row">
+      <label class="settings-checkbox-container">
+        <input type="checkbox" class="setting-checkbox use-aikar" ${useAikar ? "checked" : ""}>
+        <span class="custom-checkbox"></span>
+        Enable Aikar's Flags
+      </label>
+    </div>
+    <div class="settings-row">
+      <label class="settings-checkbox-container">
+        <input type="checkbox" class="setting-checkbox auto-restart" ${autoRestart ? "checked" : ""}>
+        <span class="custom-checkbox"></span>
+        Auto restart
+      </label>
+    </div>
+    <div class="settings-row">
+      <label class="settings-checkbox-container">
+        <input type="checkbox" class="setting-checkbox gui-enabled" ${guiEnabled ? "checked" : ""}>
+        <span class="custom-checkbox"></span>
+        Enable GUI
+      </label>
+    </div>
+  </div>
 
-      <div class="server-actions">
-        <button class="btn btn-secondary btn-sm btn-open-folder" title="Open server directory folder">Open Folder</button>
-        <button class="btn btn-danger btn-sm btn-delete" title="Delete this server and all files">Delete</button>
-        <button class="btn btn-primary btn-sm btn-start" title="Launch the server console">Start Server</button>
-      </div>
-    `;
+  <div class="server-actions">
+    <div class="actions-left">
+      <button class="btn btn-secondary btn-open-folder" title="Open server directory folder">
+        <img src="assets/folder.svg" alt="" class="btn-icon-svg">
+        <span>Open Folder</span>
+      </button>
+      <button class="btn btn-danger btn-delete" title="Delete this server and all files">
+        <img src="assets/delete.svg" alt="" class="btn-icon-svg">
+      </button>
+    </div>
+    
+    <button class="btn btn-primary btn-start" title="Launch the server console">
+      <img src="assets/power.svg" alt="" class="btn-icon-svg brightness-invert">
+      <span>Start Server</span>
+    </button>
+  </div>
+`;
 
     const settingsPanel = item.querySelector(".server-settings-panel");
     const settingsToggle = item.querySelector(".btn-settings-toggle");
@@ -162,7 +219,7 @@ function renderServers() {
         });
         Object.assign(server, updated);
       } catch (err) {
-        alert(`Unable to update server settings: ${err.message}`);
+        toast(`Unable to update server settings: ${err.message}`, "error");
       }
     };
 
@@ -194,7 +251,7 @@ function renderServers() {
     const btnStart = item.querySelector(".btn-start");
     btnStart.addEventListener("click", async () => {
       btnStart.disabled = true;
-      btnStart.innerText = "⏳ Starting...";
+      btnStart.innerHTML = `<img src="assets/started.svg" alt="" class="btn-icon-svg brightness-invert"><span>Started</span>`;
 
       try {
         const res = await window.api.startServer({
@@ -206,18 +263,19 @@ function renderServers() {
         });
 
         if (!res.success && res.error === "java_missing") {
-          alert(
+          toast(
             "Java is not installed on this system. Please download and install it via the link in the top-right header.",
+            "error",
           );
           await updateJavaStatus();
         } else if (!res.success) {
-          alert("Failed to start server: Unknown error.");
+          toast("Failed to start server: Unknown error.", "error");
         }
       } catch (err) {
-        alert(`Failed to launch server: ${err.message}`);
+        toast(`Failed to launch server: ${err.message}`, "error");
       } finally {
         btnStart.disabled = false;
-        btnStart.innerText = "⚡ Start Server";
+        btnStart.innerHTML = `<img src="assets/power.svg" alt="" class="btn-icon-svg brightness-invert"><span>Start Server</span>`;
       }
     });
 
@@ -226,7 +284,7 @@ function renderServers() {
       try {
         await window.api.openServerFolder(server.folderName);
       } catch (err) {
-        alert(err.message);
+        toast(`Failed to open server folder: ${err.message}`, "error");
       }
     });
 
@@ -240,7 +298,7 @@ function renderServers() {
           await window.api.deleteServer(server.folderName);
           await loadServers();
         } catch (err) {
-          alert(`Deletion failed: ${err.message}`);
+          toast(`Deletion failed: ${err.message}`, "error");
         }
       }
     });
@@ -249,21 +307,31 @@ function renderServers() {
   });
 }
 
-async function populateVersions() {
-  if (versionsLoaded) return;
+function getVersionLabel(loader) {
+  if (loader === "velocity") return "Velocity Version";
+  if (loader === "forge") return "Forge Version";
+  if (loader === "neoforge") return "NeoForge Version";
+  return "Minecraft Version";
+}
+
+async function populateVersions(loader = selectedLoader) {
+  versionsLoaded = false;
 
   try {
-    const select = versionSelect;
-    select.innerHTML =
-      '<option value="" disabled selected>Select a version...</option>';
+    versionLabelEl.innerText = getVersionLabel(loader);
+    versionSelect.innerHTML =
+      '<option value="" disabled selected>Loading versions...</option>';
 
-    const versions = await window.api.getVersions();
+    const versions = await window.api.getVersions(loader);
+
+    versionSelect.innerHTML =
+      '<option value="" disabled selected>Select a version...</option>';
 
     versions.forEach((v) => {
       const opt = document.createElement("option");
       opt.value = v.id;
-      opt.innerText = v.id;
-      select.appendChild(opt);
+      opt.innerText = v.label;
+      versionSelect.appendChild(opt);
     });
 
     versionsLoaded = true;
@@ -275,18 +343,6 @@ async function populateVersions() {
 }
 
 function setupEventListeners() {
-  themeToggleBtn.addEventListener("click", () => {
-    if (document.body.classList.contains("light-theme")) {
-      document.body.classList.remove("light-theme");
-      localStorage.setItem("theme", "dark");
-      themeToggleBtn.innerText = "Dark";
-    } else {
-      document.body.classList.add("light-theme");
-      localStorage.setItem("theme", "light");
-      themeToggleBtn.innerText = "Light";
-    }
-  });
-
   const openModal = async () => {
     createModalEl.classList.add("active");
     await populateVersions();
@@ -310,10 +366,14 @@ function setupEventListeners() {
   });
 
   loaderCards.forEach((card) => {
-    card.addEventListener("click", () => {
+    card.addEventListener("click", async () => {
       loaderCards.forEach((c) => c.classList.remove("selected"));
       card.classList.add("selected");
       selectedLoader = card.getAttribute("data-loader");
+      versionsLoaded = false;
+      if (createModalEl.classList.contains("active")) {
+        await populateVersions(selectedLoader);
+      }
     });
   });
 
@@ -325,7 +385,7 @@ function setupEventListeners() {
     const loader = selectedLoader;
 
     if (!serverName || !version) {
-      alert("Please fill out all fields.");
+      toast("Please fill out all fields.", "error");
       return;
     }
 
@@ -350,7 +410,7 @@ function setupEventListeners() {
         await loadServers();
       }
     } catch (err) {
-      alert(`Server creation failed: ${err.message}`);
+      toast(err, "error");
     } finally {
       unsubscribe();
       progressOverlayEl.classList.remove("active");

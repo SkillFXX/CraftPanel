@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build":"electron-builder --win"
+    "build": "electron-builder --win"
   },
   "devDependencies": {
     "electron": "^42.3.3",
